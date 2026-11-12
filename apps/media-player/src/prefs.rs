@@ -62,6 +62,8 @@ pub struct Prefs {
     pub time_left: bool,
     pub notify: bool,
     pub tmdb: bool,
+    /// Older versions kept the key here; it moves to the Secret Service on first use.
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub tmdb_key: String,
     pub tmdb_language: String,
     /// 0..1 (what the slider shows; mpv's own curve is cubic).

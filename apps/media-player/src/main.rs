@@ -14,6 +14,7 @@ mod player;
 mod playerbar;
 mod prefs;
 mod sections;
+mod secrets;
 mod settings_dialog;
 mod seekbar;
 mod theme;

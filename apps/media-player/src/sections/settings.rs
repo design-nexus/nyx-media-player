@@ -356,7 +356,7 @@ pub fn build(page: &Page) {
         move |on| {
             prefs::update(|p| p.tmdb = on);
             tr.set_visible(on);
-            if on && !prefs::get().tmdb_key.trim().is_empty() {
+            if on && !crate::secrets::tmdb_key().is_empty() {
                 refresh_tmdb();
             }
         },
@@ -365,18 +365,20 @@ pub fn build(page: &Page) {
     let key_box = widgets::hbox(8);
     let key = gtk::PasswordEntry::new();
     key.set_show_peek_icon(true);
-    key.set_text(&p.tmdb_key);
+    key.set_text(&crate::secrets::tmdb_key());
     key.set_size_request(240, -1);
     key.add_css_class("mono");
     let save = gtk::Button::with_label("Use key");
     let k = key.clone();
     let apply = move || {
         let text = k.text().trim().to_string();
-        if text == prefs::get().tmdb_key {
+        if text == crate::secrets::tmdb_key() {
             return;
         }
-        prefs::update(|p| p.tmdb_key = text.clone());
-        prefs::flush();
+        if let Err(e) = crate::secrets::set_tmdb_key(&text) {
+            window::toast(&e);
+            return;
+        }
         if !text.is_empty() {
             window::toast("Looking up your library on TMDB…");
             refresh_tmdb();

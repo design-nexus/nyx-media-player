@@ -23,8 +23,11 @@ pub struct Settings {
 
 impl Settings {
     pub fn from_prefs(p: &Prefs) -> Option<Settings> {
-        let key = p.tmdb_key.trim().to_string();
-        (p.tmdb && !key.is_empty()).then(|| Settings { key, language: p.tmdb_language.clone() })
+        if !p.tmdb {
+            return None;
+        }
+        let key = crate::secrets::tmdb_key();
+        (!key.is_empty()).then(|| Settings { key, language: p.tmdb_language.clone() })
     }
 }
 
