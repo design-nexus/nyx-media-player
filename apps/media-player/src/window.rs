@@ -196,11 +196,7 @@ fn build(app: &gtk::Application) {
     stack.set_transition_duration(if prefs::get().reduce_motion { 0 } else { 160 });
 
     let search = search_entry();
-    let content = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    content.set_hexpand(true);
-    content.append(&stack);
     let bar = playerbar::build();
-    content.append(&bar);
     // The bar is only there while something is loaded.
     bar.set_visible(false);
     player::subscribe(&bar, |e| {
@@ -208,11 +204,6 @@ fn build(app: &gtk::Application) {
             update_bar();
         }
     });
-
-    let body = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    body.set_vexpand(true);
-    body.append(&nav);
-    body.append(&content);
 
     // The header: the app and the page, the sidebar toggle, search, opening a web
     // address or files, the equalizer and Settings.
@@ -231,14 +222,15 @@ fn build(app: &gtk::Application) {
     eq.connect_clicked(|_| open_equalizer());
     header.end.append(&eq);
     header.end.append(&chrome::settings_button(settings_dialog::open));
-    let frame = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    frame.add_css_class("window-frame");
-    frame.append(&header.root);
-    frame.append(&body);
-
-    let overlay = gtk::Overlay::new();
-    overlay.set_child(Some(&frame));
-    window.set_child(Some(&overlay));
+    // The player bar runs across the window's foot, under the sidebar and the pages.
+    let frame = Rc::new(nyx_ui::frame::AppFrame::new(&header.root));
+    frame.set_sidebar(&nav);
+    frame.set_page(&stack);
+    frame.set_foot(&bar);
+    let overlay = frame.install(&window);
+    // The picture reaches the sheet's edges; every other page keeps the room inside it.
+    let f = frame.clone();
+    stack.connect_visible_child_name_notify(move |s| f.set_flush(s.visible_child_name().as_deref() == Some("now-playing")));
 
     install_keys(&window, &search);
     accept_file_drops(&overlay);

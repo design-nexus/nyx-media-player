@@ -787,17 +787,27 @@ window.media-window .home-hero button.hero-icon:hover {
   margin: 0 14px 12px 8px;
 }
 
+.app-page.flush .settings-page.bare {
+  padding: 0;
+}
+
+.app-page.flush .player-stage,
 window.fullscreen .player-stage {
   margin: 0;
   border-radius: 0;
 }
 
-/* The player bar: a soft card under the pages with a light round Play, as in Music. */
+window.fullscreen .app-page {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+}
+
+/* The player bar, the frame's foot, with a light round Play as in Music. */
 .player-bar {
-  background: @theme_card;
+  background: transparent;
   border-top: none;
-  border-radius: 12px;
-  margin: 0 18px 14px 8px;
+  margin: 0;
   padding: 10px 14px;
 }
 
