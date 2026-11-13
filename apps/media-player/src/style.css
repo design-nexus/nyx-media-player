@@ -843,3 +843,299 @@ window.media-window .player-bar scale.volume > trough > highlight {
   border-radius: 2px;
   background: @theme_dim_text;
 }
+
+/* ---------- Lists and folders ---------- */
+
+.key-hint {
+  color: @theme_text_tertiary;
+  font-size: 0.846em;
+  font-weight: 400;
+}
+
+window.media-window .app-header button.open-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: @field;
+  box-shadow: inset 0 0 0 1px @hairline;
+  color: @theme_text;
+  font-weight: 600;
+}
+
+window.media-window .app-header button.open-button:hover {
+  background: mix(@field, @theme_text, 0.06);
+}
+
+window.media-window .app-header button.open-button .key-hint {
+  margin-left: 2px;
+}
+
+/* Home: the lists on the left, Recently added on the right. */
+.media-window .settings-content .settings-page.page-home {
+  padding: 10px 12px 24px 12px;
+}
+
+.home-heading {
+  margin: 0 4px 8px;
+  min-height: 24px;
+}
+
+.home-heading.later {
+  margin-top: 22px;
+}
+
+.home-heading-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.home-count {
+  color: @theme_accent;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+window.media-window button.home-link {
+  min-height: 22px;
+  padding: 0 4px;
+  background: transparent;
+  color: @theme_accent;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+window.media-window button.home-link:hover {
+  background: @row_hover;
+  color: @theme_accent;
+}
+
+.home-row {
+  padding: 8px 12px 8px 8px;
+  border-top: 1px solid @hairline;
+}
+
+.home-row:first-child {
+  border-top: none;
+}
+
+.home-row:hover {
+  background: @row_hover;
+  border-radius: var(--nyx-radius-card);
+}
+
+.home-row.lead {
+  background: @nav_active;
+  border-radius: var(--nyx-radius-card);
+}
+
+.home-row.lead + .home-row,
+.home-row:hover + .home-row {
+  border-top-color: transparent;
+}
+
+.row-thumb {
+  border-radius: 7px;
+}
+
+.row-title {
+  font-weight: 600;
+}
+
+.row-sub {
+  font-size: 0.923em;
+  color: @theme_dim_text;
+}
+
+.row-faint {
+  font-size: 0.923em;
+  color: @theme_text_tertiary;
+  margin-right: 4px;
+}
+
+window.media-window button.resume {
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+window.media-window button.resume.suggested-action {
+  font-weight: 600;
+}
+
+.home-nothing {
+  margin-top: 24px;
+}
+
+.recent-row {
+  padding: 9px 14px;
+  border-top: 1px solid @hairline;
+}
+
+.recent-row:first-child {
+  border-top: none;
+}
+
+.recent-row:hover {
+  background: @row_hover;
+  border-radius: var(--nyx-radius-card);
+}
+
+.recent-title {
+  font-weight: 500;
+}
+
+.recent-sub,
+.recent-when {
+  font-size: 0.846em;
+  color: @theme_dim_text;
+}
+
+.recent-length {
+  font-size: 0.846em;
+  color: @theme_text_tertiary;
+}
+
+.home-tip {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--nyx-radius-card);
+  border: 1px dashed alpha(@theme_text, 0.16);
+  color: @theme_dim_text;
+  font-size: 0.846em;
+}
+
+.home-tip image {
+  color: @theme_text_tertiary;
+  margin-top: 2px;
+}
+
+/* All videos: the toolbar, then the table across the sheet. */
+.media-window .settings-content .settings-page.page-videos,
+.media-window .settings-content .settings-page.page-folders,
+.media-window .settings-content .settings-page.page-videos.narrow,
+.media-window .settings-content .settings-page.page-folders.narrow {
+  padding: 0;
+}
+
+.page-videos .toolbar.page-head {
+  min-height: 52px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid @hairline;
+}
+
+.only-unwatched {
+  margin-left: 6px;
+}
+
+.only-unwatched-label {
+  font-size: 0.923em;
+  color: @theme_dim_text;
+}
+
+window.media-window .only-unwatched switch {
+  transform: scale(0.85);
+}
+
+window.media-window .all-videos {
+  padding: 0 6px;
+}
+
+window.media-window .all-videos columnview > listview > row {
+  min-height: 46px;
+}
+
+.cell-thumb {
+  border-radius: 5px;
+}
+
+.cell-title {
+  font-weight: 500;
+}
+
+.cell-watched {
+  color: @theme_success;
+}
+
+.cell-faint {
+  color: @theme_text_tertiary;
+}
+
+progressbar.cell-progress > trough {
+  min-height: 4px;
+  border-radius: 2px;
+  background: @track;
+}
+
+progressbar.cell-progress > trough > progress {
+  min-height: 4px;
+  border-radius: 2px;
+  background: @theme_accent;
+}
+
+/* A folder: the path across the top, then its folders and files. */
+.folder-path {
+  min-height: 48px;
+  padding: 0 10px 0 12px;
+  border-bottom: 1px solid @hairline;
+}
+
+.folder-path .folder-crumb-here {
+  font-size: 13px;
+}
+
+.folder-list {
+  padding: 8px 10px;
+}
+
+window.media-window button.disk-row {
+  min-height: 0;
+  padding: 7px 10px;
+  border-radius: var(--nyx-radius-card);
+  background: transparent;
+  color: @theme_text;
+  font-weight: 400;
+}
+
+window.media-window button.disk-row:hover {
+  background: @row_hover;
+}
+
+window.media-window button.disk-row.picked {
+  background: @nav_active;
+}
+
+.folder-glyph {
+  -gtk-icon-size: 26px;
+}
+
+.folder-now {
+  -gtk-icon-size: 18px;
+  color: @theme_accent;
+}
+
+.folder-watched {
+  -gtk-icon-size: 18px;
+  color: @theme_success;
+}
+
+/* The player bar's track chips. */
+window.media-window .player-bar menubutton.track-chip > button {
+  min-height: 26px;
+  padding: 0 10px 0 8px;
+  border-radius: 13px;
+  border: none;
+  background: @field;
+  box-shadow: inset 0 0 0 1px @hairline;
+  color: @theme_dim_text;
+  font-size: 0.846em;
+  font-weight: 500;
+}
+
+window.media-window .player-bar menubutton.track-chip > button:hover {
+  color: @theme_text;
+}
+
+window.media-window .player-bar menubutton.track-chip image {
+  -gtk-icon-size: 14px;
+}

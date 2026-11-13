@@ -2,6 +2,7 @@
 //! search: sortable columns, multi-select, a right-click menu, double-click to
 //! play, and drag-and-drop onto playlists in the sidebar.
 
+use crate::library::art::Art;
 use crate::library::{Kind, Video, store};
 use crate::sections::playlist;
 use crate::{fmt, menu, player, widgets, window};
@@ -20,11 +21,16 @@ pub enum Col {
     Num,
     Title,
     Kind,
+    /// The kind with a movie's year: "Movie · 2021".
+    KindYear,
     Year,
     Time,
+    Size,
     Added,
     /// Watched, or how far in.
     Status,
+    /// Watched, a bar of how far in, or "Not yet".
+    Watched,
 }
 
 impl Col {
@@ -32,16 +38,18 @@ impl Col {
         match self {
             Col::Indicator | Col::Num => "",
             Col::Title => "Title",
-            Col::Kind => "Kind",
+            Col::Kind | Col::KindYear => "Kind",
             Col::Year => "Year",
             Col::Time => "Length",
+            Col::Size => "Size",
             Col::Added => "Added",
             Col::Status => "Seen",
+            Col::Watched => "Watched",
         }
     }
 
     fn hidden_when_narrow(self) -> bool {
-        matches!(self, Col::Kind | Col::Year | Col::Added)
+        matches!(self, Col::Kind | Col::KindYear | Col::Year | Col::Size | Col::Added)
     }
 }
 
@@ -62,6 +70,8 @@ pub struct Options {
     /// Instead of playing the list from the activated row.
     pub on_activate: Option<Rc<dyn Fn(usize)>>,
     pub extra: Vec<Extra>,
+    /// A small frame before each title.
+    pub thumbs: bool,
 }
 
 impl Default for Options {
@@ -72,6 +82,7 @@ impl Default for Options {
             positions: false,
             on_activate: None,
             extra: Vec::new(),
+            thumbs: false,
         }
     }
 }
@@ -83,6 +94,7 @@ pub struct VideoTable {
     store: gio::ListStore,
     sorted: gtk::SortListModel,
     selection: gtk::MultiSelection,
+    columns: Rc<RefCell<Vec<(Col, gtk::ColumnViewColumn)>>>,
 }
 
 thread_local! {
@@ -97,7 +109,14 @@ fn kind_name(k: Kind) -> &'static str {
     match k {
         Kind::Movie => "Movie",
         Kind::Episode => "Episode",
-        Kind::Other => "Video",
+        Kind::Other => "Home video",
+    }
+}
+
+fn kind_year(v: &Video) -> String {
+    match (v.kind, v.year) {
+        (Kind::Movie, Some(y)) => format!("Movie · {y}"),
+        (k, _) => kind_name(k).to_string(),
     }
 }
 
@@ -117,10 +136,12 @@ fn compare(col: Col, a: &Video, b: &Video) -> Ordering {
     match col {
         Col::Title => title_order(a, b),
         Col::Kind => kind_name(a.kind).cmp(kind_name(b.kind)).then_with(|| title_order(a, b)),
+        Col::KindYear => kind_name(a.kind).cmp(kind_name(b.kind)).then_with(|| a.year.cmp(&b.year)).then_with(|| title_order(a, b)),
         Col::Year => a.year.cmp(&b.year).then_with(|| title_order(a, b)),
         Col::Time => a.duration.total_cmp(&b.duration),
-        Col::Added => a.added.cmp(&b.added),
-        Col::Status => status_rank(a).total_cmp(&status_rank(b)),
+        Col::Size => a.size.cmp(&b.size),
+        Col::Added => a.added.cmp(&b.added).then_with(|| title_order(a, b)),
+        Col::Status | Col::Watched => status_rank(a).total_cmp(&status_rank(b)),
         Col::Indicator | Col::Num => Ordering::Equal,
     }
 }
@@ -139,12 +160,46 @@ fn status(v: &Video) -> String {
     }
 }
 
-/// "12 Mar 2026", from Unix seconds.
+/// "Mar 4" this year, "Mar 4, 2025" before, from Unix seconds.
 fn date(secs: i64) -> String {
     if secs <= 0 {
         return String::new();
     }
-    glib::DateTime::from_unix_local(secs).ok().and_then(|d| d.format("%-d %b %Y").ok()).map(|s| s.to_string()).unwrap_or_default()
+    let Ok(d) = glib::DateTime::from_unix_local(secs) else { return String::new() };
+    let this_year = glib::DateTime::now_local().is_ok_and(|now| now.year() == d.year());
+    d.format(if this_year { "%b %-d" } else { "%b %-d, %Y" }).map(|s| s.to_string()).unwrap_or_default()
+}
+
+/// The Watched cell: a tick and "Watched", a bar of how far in, or "Not yet".
+fn watched_cell() -> gtk::Stack {
+    let stack = gtk::Stack::new();
+    stack.set_hhomogeneous(false);
+    stack.set_halign(gtk::Align::Start);
+    let done = widgets::hbox(5);
+    done.add_css_class("cell-watched");
+    done.append(&gtk::Image::from_icon_name("object-select-symbolic"));
+    done.append(&gtk::Label::new(Some("Watched")));
+    stack.add_named(&done, Some("watched"));
+    let bar = gtk::ProgressBar::new();
+    bar.add_css_class("cell-progress");
+    bar.set_size_request(90, -1);
+    bar.set_valign(gtk::Align::Center);
+    stack.add_named(&bar, Some("started"));
+    stack.add_named(&widgets::label("Not yet", "cell-faint"), Some("not-yet"));
+    stack
+}
+
+fn bind_watched(stack: &gtk::Stack, v: &Video) {
+    if v.watch.get().watched {
+        stack.set_visible_child_name("watched");
+    } else if v.in_progress() {
+        if let Some(bar) = stack.child_by_name("started").and_downcast::<gtk::ProgressBar>() {
+            bar.set_fraction(v.progress().max(0.04));
+        }
+        stack.set_visible_child_name("started");
+    } else {
+        stack.set_visible_child_name("not-yet");
+    }
 }
 
 fn is_playing(v: &Video) -> bool {
@@ -162,7 +217,14 @@ impl VideoTable {
         view.set_show_column_separators(false);
         let opts = Rc::new(opts);
 
-        let table = VideoTable { root: widgets::vbox(0), view: view.clone(), store, sorted: sorted.clone(), selection };
+        let table = VideoTable {
+            root: widgets::vbox(0),
+            view: view.clone(),
+            store,
+            sorted: sorted.clone(),
+            selection,
+            columns: Rc::default(),
+        };
 
         let mut default_sort: Option<gtk::ColumnViewColumn> = None;
         for &col in opts.cols {
@@ -177,10 +239,31 @@ impl VideoTable {
                         i.add_css_class("accent-text");
                         i.upcast()
                     }
+                    Col::Watched => watched_cell().upcast(),
+                    Col::Title if o.thumbs => {
+                        let line = widgets::hbox(12);
+                        let art = Art::new(60, 34, true, "nmp-video-symbolic");
+                        art.root.add_css_class("cell-thumb");
+                        line.append(&art.root);
+                        let l = widgets::label("", "cell-title");
+                        l.set_ellipsize(gtk::pango::EllipsizeMode::End);
+                        l.set_xalign(0.0);
+                        l.set_hexpand(true);
+                        line.append(&l);
+                        // Kept with the row so bind can reach the picture.
+                        unsafe { item.set_data("art", art) };
+                        line.upcast()
+                    }
                     _ => {
                         let l = widgets::label("", "");
                         l.set_ellipsize(gtk::pango::EllipsizeMode::End);
-                        if matches!(col, Col::Num | Col::Year | Col::Time | Col::Added | Col::Status) {
+                        if matches!(col, Col::Kind | Col::KindYear | Col::Size | Col::Added) {
+                            l.set_xalign(0.0);
+                        }
+                        if matches!(col, Col::Num | Col::Year | Col::Time | Col::Size | Col::Added | Col::Status) {
+                            l.add_css_class("mono");
+                        }
+                        if matches!(col, Col::Num | Col::Year | Col::Time | Col::Added | Col::Status) && !o.thumbs {
                             l.add_css_class("mono");
                             l.add_css_class("cell-dim");
                             l.set_xalign(1.0);
@@ -202,7 +285,18 @@ impl VideoTable {
                     child.set_opacity(if is_playing(v) { 1.0 } else { 0.0 });
                     return;
                 }
-                let Some(l) = child.downcast_ref::<gtk::Label>() else { return };
+                if let Some(stack) = child.downcast_ref::<gtk::Stack>() {
+                    bind_watched(stack, v);
+                    return;
+                }
+                if let Some(art) = unsafe { item.data::<Art>("art") } {
+                    unsafe { art.as_ref() }.set_key(v.wide_art());
+                }
+                let label = match child.downcast_ref::<gtk::Label>() {
+                    Some(l) => Some(l.clone()),
+                    None => child.last_child().and_downcast::<gtk::Label>(),
+                };
+                let Some(l) = label.as_ref() else { return };
                 let text = match col {
                     Col::Num => {
                         if is_playing(v) {
@@ -213,8 +307,11 @@ impl VideoTable {
                             String::new()
                         }
                     }
+                    // With a Kind column beside it, the year is there already.
+                    Col::Title if o.thumbs && v.kind == Kind::Movie => v.title.clone(),
                     Col::Title => v.label(),
                     Col::Kind => kind_name(v.kind).to_string(),
+                    Col::KindYear => kind_year(v),
                     Col::Year => v.year.map(|y| y.to_string()).unwrap_or_default(),
                     Col::Time => {
                         if v.duration > 0.0 {
@@ -223,9 +320,16 @@ impl VideoTable {
                             String::new()
                         }
                     }
+                    Col::Size => {
+                        if v.size > 0 {
+                            fmt::size(v.size)
+                        } else {
+                            String::new()
+                        }
+                    }
                     Col::Added => date(v.added),
                     Col::Status => status(v),
-                    Col::Indicator => String::new(),
+                    Col::Indicator | Col::Watched => String::new(),
                 };
                 l.set_text(&text);
                 if col == Col::Num || col == Col::Title {
@@ -245,10 +349,15 @@ impl VideoTable {
                 Col::Indicator => c.set_fixed_width(34),
                 Col::Num => c.set_fixed_width(48),
                 Col::Kind => c.set_fixed_width(90),
+                Col::KindYear => c.set_fixed_width(128),
                 Col::Year => c.set_fixed_width(70),
+                Col::Time if opts.thumbs => c.set_fixed_width(96),
                 Col::Time => c.set_fixed_width(84),
+                Col::Size => c.set_fixed_width(82),
+                Col::Added if opts.thumbs => c.set_fixed_width(100),
                 Col::Added => c.set_fixed_width(120),
                 Col::Status => c.set_fixed_width(64),
+                Col::Watched => c.set_fixed_width(120),
                 Col::Title => c.set_expand(true),
             }
             if opts.sortable && !matches!(col, Col::Indicator | Col::Num) {
@@ -261,6 +370,7 @@ impl VideoTable {
                 }
             }
             view.append_column(&c);
+            table.columns.borrow_mut().push((col, c));
         }
         if opts.sortable {
             sorted.set_sorter(view.sorter().as_ref());
@@ -272,6 +382,26 @@ impl VideoTable {
         let t = table.clone();
         let o = opts.clone();
         view.connect_activate(move |_, pos| t.activate(pos, &o));
+
+        // Q adds the selected videos to the queue; W marks them watched (or not).
+        let keys = gtk::EventControllerKey::new();
+        let t = table.clone();
+        keys.connect_key_pressed(move |_, key, _, mods| {
+            if !mods.is_empty() {
+                return glib::Propagation::Proceed;
+            }
+            let videos = t.selected();
+            if videos.is_empty() {
+                return glib::Propagation::Proceed;
+            }
+            match key {
+                gdk::Key::q | gdk::Key::Q => menu::enqueue(videos.iter().map(|v| v.path.clone()).collect()),
+                gdk::Key::w | gdk::Key::W => menu::toggle_watched(&videos),
+                _ => return glib::Propagation::Proceed,
+            }
+            glib::Propagation::Stop
+        });
+        view.add_controller(keys);
 
         let scroll = gtk::ScrolledWindow::builder()
             .hscrollbar_policy(gtk::PolicyType::Never)
@@ -317,6 +447,28 @@ impl VideoTable {
 
     pub fn len(&self) -> u32 {
         self.store.n_items()
+    }
+
+    /// Sort by a column, as clicking its heading would.
+    pub fn sort_by(&self, col: Col, order: gtk::SortType) {
+        let c = self.columns.borrow().iter().find(|(k, _)| *k == col).map(|(_, c)| c.clone());
+        // Only this column: the earlier sorts would otherwise stay on as tie-breakers, arrows and all.
+        self.view.sort_by_column(None, order);
+        self.view.sort_by_column(c.as_ref(), order);
+    }
+
+    /// The selected videos, in view order.
+    fn selected(&self) -> Vec<Rc<Video>> {
+        let set = self.selection.selection();
+        let mut out = Vec::new();
+        if let Some((iter, first)) = gtk::BitsetIter::init_first(&set) {
+            for i in std::iter::once(first).chain(iter) {
+                if let Some(v) = self.sorted.item(i).and_then(|o| row_of(&o).map(|r| r.video.clone())) {
+                    out.push(v);
+                }
+            }
+        }
+        out
     }
 
     /// Paths in the order they're shown.
@@ -416,7 +568,7 @@ fn apply_narrow(view: &gtk::ColumnView, narrow: bool) {
     for i in 0..cols.n_items() {
         if let Some(c) = cols.item(i).and_downcast::<gtk::ColumnViewColumn>() {
             let title = c.title().map(|t| t.to_string()).unwrap_or_default();
-            if [Col::Kind, Col::Year, Col::Added].iter().any(|col| col.hidden_when_narrow() && col.title() == title) {
+            if [Col::Kind, Col::KindYear, Col::Year, Col::Size, Col::Added].iter().any(|col| col.hidden_when_narrow() && col.title() == title) {
                 c.set_visible(!narrow);
             }
         }

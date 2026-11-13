@@ -343,6 +343,16 @@ pub fn build(page: &Page) {
         player::set_volume_boost,
     );
     g.add(&r);
+    let (r, _) = widgets::button_row(
+        "Equalizer",
+        "Ten bands and a preamp; also under the sound button on the player bar.",
+        "Open",
+        |_| {
+            nyx_ui::settings_card::close();
+            crate::window::open_equalizer();
+        },
+    );
+    g.add(&r);
 
     // ----- Online details -----
     let g = page.group("Online details");

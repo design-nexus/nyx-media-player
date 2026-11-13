@@ -2,10 +2,10 @@
 
 use crate::library::store::{self, Show};
 use crate::library::{Kind, Video, tmdb};
-use crate::sections::{movies, playlist, shows};
+use crate::sections::{folders, movies, playlist, shows};
 use crate::{cmd, fmt, player, prefs, views, widgets, window};
 use gtk::prelude::*;
-use gtk::{gdk, glib};
+use nyx_ui::menu::{self, Entry};
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -15,225 +15,189 @@ pub fn added_text(n: usize, where_: &str) -> String {
     format!("Added {} {where_}.", fmt::count(n, "video", "videos"))
 }
 
-/// A popover menu at (x, y) in `anchor`, with a second page for playlists.
-struct Menu {
-    pop: gtk::Popover,
-    pages: gtk::Stack,
-    main: gtk::Box,
+/// "Add to a playlist ›": a new one, or one of the playlists.
+fn playlists_sub(paths: Vec<PathBuf>) -> Entry {
+    let p = paths.clone();
+    let mut entries = vec![menu::item("New playlist…", move || playlist::new_dialog(p.clone())).icon("list-add-symbolic")];
+    let lists = store::playlists();
+    if !lists.is_empty() {
+        entries.push(menu::separator());
+    }
+    for pl in lists {
+        let p = paths.clone();
+        entries.push(menu::item(&pl.name, move || playlist::append(pl.id, p.clone())).icon("nmp-playlist-symbolic"));
+    }
+    menu::sub("Add to a playlist", entries).icon("nmp-playlist-symbolic")
 }
 
-impl Menu {
-    fn new(anchor: &gtk::Widget, x: f64, y: f64) -> Menu {
-        let pop = gtk::Popover::new();
-        pop.set_has_arrow(false);
-        pop.set_parent(anchor);
-        pop.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
-        pop.add_css_class("menu-popover");
-        let pages = gtk::Stack::new();
-        pages.set_vhomogeneous(false);
-        pages.set_hhomogeneous(false);
-        let main = widgets::vbox(1);
-        pages.add_named(&main, Some("main"));
-        pop.set_child(Some(&pages));
-        let anchor_weak = anchor.downgrade();
-        pop.connect_closed(move |p| {
-            let p = p.clone();
-            let a = anchor_weak.clone();
-            glib::idle_add_local_once(move || {
-                if a.upgrade().is_some() {
-                    p.unparent();
-                }
-            });
-        });
-        Menu { pop, pages, main }
-    }
+/// Mark as watched or unwatched, all together.
+pub fn toggle_watched(videos: &[Rc<Video>]) {
+    let all_watched = videos.iter().all(|v| v.watch.get().watched);
+    store::set_watched(videos, !all_watched);
+}
 
-    fn item(&self, label: &str, f: impl Fn() + 'static) -> gtk::Button {
-        let b = gtk::Button::with_label(label);
-        b.add_css_class("flat");
-        b.add_css_class("menu-item");
-        if let Some(l) = b.child().and_downcast::<gtk::Label>() {
-            l.set_xalign(0.0);
-        }
-        let pop = self.pop.clone();
-        b.connect_clicked(move |_| {
-            pop.popdown();
-            f();
-        });
-        b
-    }
-
-    fn add(&self, label: &str, f: impl Fn() + 'static) {
-        self.main.append(&self.item(label, f));
-    }
-
-    fn separator(&self) {
-        self.main.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-    }
-
-    /// "Add to playlist ›" and its page.
-    fn playlists(&self, paths: Vec<PathBuf>) {
-        let to = gtk::Button::new();
-        to.add_css_class("flat");
-        to.add_css_class("menu-item");
-        let row = widgets::hbox(8);
-        let l = widgets::label("Add to playlist", "");
-        l.set_hexpand(true);
-        row.append(&l);
-        row.append(&gtk::Image::from_icon_name("pan-end-symbolic"));
-        to.set_child(Some(&row));
-        let pg = self.pages.clone();
-        to.connect_clicked(move |_| pg.set_visible_child_name("playlists"));
-        self.main.append(&to);
-
-        let lists = widgets::vbox(1);
-        let back = gtk::Button::new();
-        back.add_css_class("flat");
-        back.add_css_class("menu-item");
-        let row = widgets::hbox(8);
-        row.append(&gtk::Image::from_icon_name("pan-start-symbolic"));
-        row.append(&widgets::label("Add to playlist", "menu-heading-inline"));
-        back.set_child(Some(&row));
-        let pg = self.pages.clone();
-        back.connect_clicked(move |_| pg.set_visible_child_name("main"));
-        lists.append(&back);
-        lists.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        let p = paths.clone();
-        lists.append(&self.item("New playlist…", move || playlist::new_dialog(p.clone())));
-        let scroll_box = widgets::vbox(1);
-        for pl in store::playlists() {
-            let p = paths.clone();
-            scroll_box.append(&self.item(&pl.name, move || playlist::append(pl.id, p.clone())));
-        }
-        let scroll = gtk::ScrolledWindow::builder()
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vscrollbar_policy(gtk::PolicyType::External)
-            .propagate_natural_height(true)
-            .max_content_height(320)
-            .child(&scroll_box)
-            .build();
-        lists.append(&scroll);
-        self.pages.add_named(&lists, Some("playlists"));
-    }
-
-    fn popup(&self) {
-        self.pop.popup();
-    }
+/// Add to the end of the queue, with a toast saying how many.
+pub fn enqueue(paths: Vec<PathBuf>) {
+    let n = paths.len();
+    player::enqueue(paths);
+    window::toast(&added_text(n, "to the queue"));
 }
 
 /// The menu for one or more videos.
 pub fn video_menu(anchor: &gtk::Widget, x: f64, y: f64, videos: Vec<Rc<Video>>, extra: Vec<Extra>) {
     let Some(first) = videos.first().cloned() else { return };
     let paths: Vec<PathBuf> = videos.iter().map(|v| v.path.clone()).collect();
-    let m = Menu::new(anchor, x, y);
     let single = videos.len() == 1;
+    let mut m = Vec::new();
     if single {
         let v = first.clone();
-        m.add(if v.in_progress() { "Resume" } else { "Play" }, move || views::play_video(&v));
+        m.push(
+            menu::item(if v.in_progress() { "Resume" } else { "Play" }, move || views::play_video(&v))
+                .icon("media-playback-start-symbolic")
+                .key("Enter"),
+        );
         if first.in_progress() {
             let v = first.clone();
-            m.add("Play from the start", move || {
-                store::update_watch(&v, |w| w.position = 0.0);
-                views::play_video(&v);
-            });
+            m.push(
+                menu::item("Play from the start", move || {
+                    store::update_watch(&v, |w| w.position = 0.0);
+                    views::play_video(&v);
+                })
+                .icon("media-skip-backward-symbolic"),
+            );
         }
     } else {
         let p = paths.clone();
-        m.add("Play", move || {
-            player::play_paths(p.clone(), 0);
-            window::navigate("now-playing");
-        });
+        m.push(
+            menu::item("Play", move || {
+                player::play_paths(p.clone(), 0);
+                window::navigate("now-playing");
+            })
+            .icon("media-playback-start-symbolic")
+            .key("Enter"),
+        );
     }
     let p = paths.clone();
-    m.add("Play next", move || {
-        player::play_next(p.clone());
-        window::toast(&added_text(p.len(), "to play next"));
-    });
+    m.push(
+        menu::item("Play next", move || {
+            player::play_next(p.clone());
+            window::toast(&added_text(p.len(), "to play next"));
+        })
+        .icon("nmp-queue-symbolic"),
+    );
     let p = paths.clone();
-    m.add("Add to queue", move || {
-        player::enqueue(p.clone());
-        window::toast(&added_text(p.len(), "to the queue"));
-    });
-    m.playlists(paths.clone());
-    m.separator();
+    m.push(menu::item("Add to the queue", move || enqueue(p.clone())).icon("list-add-symbolic").key("Q"));
+    m.push(playlists_sub(paths.clone()));
+    m.push(menu::separator());
     let all_watched = videos.iter().all(|v| v.watch.get().watched);
     let vs = videos.clone();
-    m.add(if all_watched { "Mark as unwatched" } else { "Mark as watched" }, move || store::set_watched(&vs, !all_watched));
+    m.push(
+        menu::item(if all_watched { "Mark as unwatched" } else { "Mark as watched" }, move || toggle_watched(&vs))
+            .icon("object-select-symbolic")
+            .key("W"),
+    );
     let started: Vec<Rc<Video>> = videos.iter().filter(|v| v.in_progress()).cloned().collect();
     if !started.is_empty() {
-        m.add("Remove from Continue watching", move || {
-            for v in &started {
-                store::update_watch(v, |w| w.position = 0.0);
-            }
-        });
+        m.push(
+            menu::item("Remove from Continue watching", move || {
+                for v in &started {
+                    store::update_watch(v, |w| w.position = 0.0);
+                }
+            })
+            .icon("window-close-symbolic"),
+        );
     }
+    let tmdb_on = tmdb::Settings::from_prefs(&prefs::get()).is_some();
     if single && first.id > 0 {
         match first.kind {
             Kind::Episode => {
                 let key = first.show_key();
-                m.add("Go to show", move || shows::open(&key));
+                m.push(menu::item("Go to the show", move || shows::open(&key)).icon("nmp-tv-symbolic"));
+                if tmdb_on && let Some(show) = store::show_of(&first) {
+                    m.push(
+                        menu::item("Fix match…", move || fix_match(&tmdb::show_target(&show.key), "tv", &show.name, show.year))
+                            .icon("system-search-symbolic"),
+                    );
+                }
             }
             Kind::Movie => {
                 let path = first.path.clone();
-                m.add("Movie details", move || movies::open(&path));
-                if tmdb::Settings::from_prefs(&prefs::get()).is_some() {
+                m.push(menu::item("Movie details", move || movies::open(&path)).icon("help-about-symbolic"));
+                if tmdb_on {
                     let v = first.clone();
-                    m.add("Fix match…", move || fix_match(&tmdb::movie_target(&v.path), "movie", &v.title, v.year));
+                    m.push(
+                        menu::item("Fix match…", move || fix_match(&tmdb::movie_target(&v.path), "movie", &v.title, v.year))
+                            .icon("system-search-symbolic"),
+                    );
                 }
             }
             Kind::Other => {}
         }
     }
     if !crate::library::is_url(&first.path) {
+        if first.id > 0 {
+            let path = first.path.clone();
+            m.push(menu::item("Show in its folder", move || folders::show_file(&path)).icon("folder-symbolic"));
+        }
         let dir = first.path.parent().map(|d| d.to_path_buf());
-        m.add("Open folder", move || {
-            if let Some(d) = &dir {
-                cmd::spawn(&["xdg-open", &d.to_string_lossy()]);
-            }
-        });
+        m.push(
+            menu::item("Open in the file manager", move || {
+                if let Some(d) = &dir {
+                    cmd::spawn(&["xdg-open", &d.to_string_lossy()]);
+                }
+            })
+            .icon("folder-open-symbolic"),
+        );
     }
     if !extra.is_empty() {
-        m.separator();
+        m.push(menu::separator());
         for (label, f) in extra {
-            m.add(label, move || f());
+            m.push(menu::item(label, move || f()));
         }
     }
-    m.popup();
+    menu::popup_at(anchor, x, y, m);
 }
 
 /// The menu for a show.
 pub fn show_menu(anchor: &gtk::Widget, x: f64, y: f64, show: Rc<Show>) {
-    let m = Menu::new(anchor, x, y);
+    let mut m = Vec::new();
     if let Some(next) = show.next_episode() {
         let label = format!("{} {}", if next.in_progress() { "Resume" } else { "Play" }, next.code());
-        m.add(&label, move || views::play_video(&next));
+        m.push(menu::item(&label, move || views::play_video(&next)).icon("media-playback-start-symbolic"));
     }
     let eps: Vec<Rc<Video>> = show.episodes().cloned().collect();
     let paths: Vec<PathBuf> = eps.iter().map(|e| e.path.clone()).collect();
     let p = paths.clone();
-    m.add("Play from the first episode", move || {
-        player::play_paths(p.clone(), 0);
-        window::navigate("now-playing");
-    });
+    m.push(
+        menu::item("Play from the first episode", move || {
+            player::play_paths(p.clone(), 0);
+            window::navigate("now-playing");
+        })
+        .icon("media-skip-backward-symbolic"),
+    );
     let p = paths.clone();
-    m.add("Add to queue", move || {
-        player::enqueue(p.clone());
-        window::toast(&added_text(p.len(), "to the queue"));
-    });
-    m.playlists(paths);
-    m.separator();
+    m.push(menu::item("Add to the queue", move || enqueue(p.clone())).icon("list-add-symbolic"));
+    m.push(playlists_sub(paths));
+    m.push(menu::separator());
     let all_watched = show.unwatched() == 0;
     let e = eps.clone();
-    m.add(if all_watched { "Mark as unwatched" } else { "Mark as watched" }, move || store::set_watched(&e, !all_watched));
+    m.push(
+        menu::item(if all_watched { "Mark as unwatched" } else { "Mark as watched" }, move || store::set_watched(&e, !all_watched))
+            .icon("object-select-symbolic"),
+    );
     if tmdb::Settings::from_prefs(&prefs::get()).is_some() {
         let s = show.clone();
-        m.add("Fix match…", move || fix_match(&tmdb::show_target(&s.key), "tv", &s.name, s.year));
+        m.push(
+            menu::item("Fix match…", move || fix_match(&tmdb::show_target(&s.key), "tv", &s.name, s.year)).icon("system-search-symbolic"),
+        );
     }
     if !show.folder.is_empty() {
+        let folder = PathBuf::from(&show.folder);
+        m.push(menu::item("Show in its folder", move || folders::show_dir(&folder)).icon("folder-symbolic"));
         let dir = show.folder.clone();
-        m.add("Open folder", move || cmd::spawn(&["xdg-open", &dir]));
+        m.push(menu::item("Open in the file manager", move || cmd::spawn(&["xdg-open", &dir])).icon("folder-open-symbolic"));
     }
-    m.popup();
+    menu::popup_at(anchor, x, y, m);
 }
 
 /// Search TMDB and pick what a movie or show really is.

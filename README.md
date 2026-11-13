@@ -9,15 +9,18 @@ from your Omarchy theme and fits a half-screen tile.
 - **Library:** scans your video folders (MKV, MP4, WebM, AVI, MOV, WMV, TS, MPEG, OGV and
   more) into a local database. Later scans only read new or changed files, and it picks
   up videos added, removed or renamed within a minute.
-  - **Home:** what you were last watching in a banner over its backdrop, Continue
-    watching (with Remove from Continue watching), the next episode of each show you're
-    following, and what was added lately.
+  - **Home:** Continue watching as a list with the time left and Resume (and Remove
+    from Continue watching), the next episode of each show you're following, and what
+    was added lately beside them.
   - **Movies:** a poster grid, sorted by title, year, date added or rating, with
     watched and unwatched filters (both remembered). Each movie has a page with its details and file info.
   - **TV shows:** shows, seasons (with Play season) and episodes (with Mark watched up
     to here), found from file names
     (`Show S01E02.mkv`, `Show 1x02.mkv`) or folders (`Show/Season 1/02 - Title.mkv`).
-  - **All videos** in one sortable table, and **Folders** as they're laid out on disk.
+  - **All videos** in one sortable table with how far you've got in each (filter by
+    kind or to what you haven't watched; <kbd>Q</kbd> queues, <kbd>W</kbd> marks watched).
+  - **Folders** as they're laid out on disk, listed in the sidebar: the path across the
+    top, each file with its progress, and Show in its folder from any video's menu.
   - **Search** (<kbd>Ctrl</kbd>+<kbd>F</kbd>) across titles, shows, episodes and plots.
 - **Details and pictures:** names from file and folder names, then Kodi-style `.nfo`
   files (`movie.nfo`, `tvshow.nfo`, `<name>.nfo`), then optionally
@@ -43,7 +46,8 @@ from your Omarchy theme and fits a half-screen tile.
   - **Picture:** override the shape (16:9, 4:3, 2.35:1…), fill the window, turn it, or
     deinterlace it.
   - **Sound:** a delay for videos whose sound is out of step, night mode to even out
-    loud and quiet parts, and an optional boost up to 150%.
+    loud and quiet parts, and an optional boost up to 150%. The player bar shows which
+    subtitles and sound track are on, and its sound button holds all of these.
   - Fullscreen, frame stepping, controls that fade away while the video plays, and
     <kbd>Ctrl</kbd>+<kbd>S</kbd> to save the frame on screen to your pictures folder.
   - **Web addresses** (<kbd>Ctrl</kbd>+<kbd>L</kbd>): streams, and video pages through
@@ -53,7 +57,7 @@ from your Omarchy theme and fits a half-screen tile.
   (hold <kbd>Shift</kbd> to add them to the queue).
 - **Queue and playlists:** play next or add to the queue from any video's right-click
   menu, make playlists, drag videos onto them in the sidebar, and import or export M3U.
-- **Equalizer:** ten bands and a preamp, with presets and your own saved ones. It opens from the status bar.
+- **Equalizer:** ten bands and a preamp, with presets and your own saved ones. It opens from the player bar's sound button or Settings.
 - **Media keys and the bar:** MPRIS, so media keys, `playerctl` and status bars control
   it and show what's playing.
 

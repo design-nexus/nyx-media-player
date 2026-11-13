@@ -132,7 +132,26 @@ fn speed_menu(content: &gtk::Box, pop: &gtk::Popover) {
     }
 }
 
-fn audio_menu(content: &gtk::Box, pop: &gtk::Popover) {
+/// Everything about sound in one place: the track, its timing, night mode,
+/// the volume boost and the equalizer.
+pub fn sound_menu(content: &gtk::Box, pop: &gtk::Popover) {
+    audio_menu(content, pop);
+    let boost = prefs::get().volume_boost;
+    let p = pop.clone();
+    content.append(&choice("Volume boost", "up to 150%", boost, move || {
+        player::set_volume_boost(!boost);
+        p.popdown();
+    }));
+    content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    let eq = prefs::get().eq_enabled;
+    let p = pop.clone();
+    content.append(&choice("Equalizer…", if eq { "on" } else { "off" }, false, move || {
+        p.popdown();
+        window::open_equalizer();
+    }));
+}
+
+pub fn audio_menu(content: &gtk::Box, pop: &gtk::Popover) {
     content.append(&widgets::label("SOUND", "popover-heading"));
     let tracks = player::tracks(TrackKind::Audio);
     if tracks.is_empty() {
@@ -162,7 +181,7 @@ fn audio_menu(content: &gtk::Box, pop: &gtk::Popover) {
     }));
 }
 
-fn subtitle_menu(content: &gtk::Box, pop: &gtk::Popover) {
+pub fn subtitle_menu(content: &gtk::Box, pop: &gtk::Popover) {
     content.append(&widgets::label("SUBTITLES", "popover-heading"));
     let tracks = player::tracks(TrackKind::Sub);
     let any = tracks.iter().any(|t| t.selected);
@@ -286,8 +305,6 @@ pub fn choose_subtitle_file() {
         }
     });
 }
-
-/// Seconds before the end when Up next appears (if there are no credits).
 
 /// The card near the end of a video: what's next, a countdown, Play now
 /// and Cancel.

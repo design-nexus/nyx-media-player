@@ -85,6 +85,7 @@ pub fn build(page: &Page) {
             ("Move up", Rc::new(|idx: Vec<usize>| move_by(&idx, -1))),
             ("Move down", Rc::new(|idx: Vec<usize>| move_by(&idx, 1))),
         ],
+        thumbs: false,
     });
     let empty = widgets::empty_state(
         "nmp-queue-symbolic",

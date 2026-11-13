@@ -339,19 +339,9 @@ pub fn back_button(label: &str, on_back: impl Fn() + 'static) -> gtk::Button {
 
 /// Play · Shuffle · Add to queue, for a list of videos.
 pub fn play_buttons(paths: impl Fn() -> Vec<PathBuf> + 'static) -> gtk::Box {
-    play_actions(paths, |icon, label, _| widgets::labeled_button(icon, label))
-}
-
-/// The same three as icons (Play in the accent), for a compact row such as a
-/// folder's in All videos.
-pub fn play_icons(paths: impl Fn() -> Vec<PathBuf> + 'static) -> gtk::Box {
-    play_actions(paths, |icon, _, tip| nyx_ui::widgets::bar_button(icon, tip))
-}
-
-fn play_actions(paths: impl Fn() -> Vec<PathBuf> + 'static, make: impl Fn(&str, &str, &str) -> gtk::Button) -> gtk::Box {
     let row = widgets::hbox(8);
     let paths = Rc::new(paths);
-    let play = make("media-playback-start-symbolic", "Play", "Play these");
+    let play = widgets::labeled_button("media-playback-start-symbolic", "Play");
     play.add_css_class("suggested-action");
     let p = paths.clone();
     play.connect_clicked(move |_| {
@@ -359,20 +349,15 @@ fn play_actions(paths: impl Fn() -> Vec<PathBuf> + 'static, make: impl Fn(&str, 
         player::play_paths(p(), 0);
         crate::window::navigate("now-playing");
     });
-    let shuffle = make("media-playlist-shuffle-symbolic", "Shuffle", "Shuffle these");
+    let shuffle = widgets::labeled_button("media-playlist-shuffle-symbolic", "Shuffle");
     let p = paths.clone();
     shuffle.connect_clicked(move |_| {
         player::shuffle_paths(p());
         crate::window::navigate("now-playing");
     });
-    let queue = make("list-add-symbolic", "Add to queue", "Add these to the queue");
+    let queue = widgets::labeled_button("list-add-symbolic", "Add to the queue");
     let p = paths.clone();
-    queue.connect_clicked(move |_| {
-        let paths = p();
-        let n = paths.len();
-        player::enqueue(paths);
-        crate::window::toast(&menu::added_text(n, "to the queue"));
-    });
+    queue.connect_clicked(move |_| menu::enqueue(p()));
     row.append(&play);
     row.append(&shuffle);
     row.append(&queue);

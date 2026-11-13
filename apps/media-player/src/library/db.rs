@@ -485,11 +485,16 @@ pub fn reset_tmdb_for(conn: &Connection, target: &str) -> Result<()> {
 pub struct Playlist {
     pub id: i64,
     pub name: String,
+    /// How many videos it holds.
+    pub count: usize,
 }
 
 pub fn playlists(conn: &Connection) -> Result<Vec<Playlist>> {
-    let mut stmt = conn.prepare("SELECT id, name FROM playlists ORDER BY name COLLATE NOCASE, id")?;
-    let rows = stmt.query_map([], |r| Ok(Playlist { id: r.get(0)?, name: r.get(1)? }))?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, (SELECT COUNT(*) FROM playlist_items WHERE playlist_id = playlists.id) \
+         FROM playlists ORDER BY name COLLATE NOCASE, id",
+    )?;
+    let rows = stmt.query_map([], |r| Ok(Playlist { id: r.get(0)?, name: r.get(1)?, count: r.get::<_, i64>(2)? as usize }))?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
@@ -600,7 +605,7 @@ mod tests {
         append_playlist(&conn, id, &["/c.mkv".into()]).unwrap();
         assert_eq!(playlist_paths(&conn, id).unwrap(), vec![PathBuf::from("/a.mkv"), "/b.mkv".into(), "/c.mkv".into()]);
         rename_playlist(&conn, id, "Weekend").unwrap();
-        assert_eq!(playlists(&conn).unwrap(), vec![Playlist { id, name: "Weekend".into() }]);
+        assert_eq!(playlists(&conn).unwrap(), vec![Playlist { id, name: "Weekend".into(), count: 3 }]);
         delete_playlist(&conn, id).unwrap();
         assert!(playlists(&conn).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);

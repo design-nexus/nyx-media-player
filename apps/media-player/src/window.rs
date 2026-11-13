@@ -1,7 +1,7 @@
 //! The main window: the Nyx header (the app and the page, the sidebar toggle,
-//! search, opening addresses and files, the equalizer and settings), the
-//! navigation sidebar with the library's size at its foot, and beside it a stack
-//! of pages built the first time they're shown over the player bar. In
+//! search, opening an address, Open and settings), the sidebar in four groups
+//! (Library, Folders as they are on disk, Playing, Playlists), and beside it a
+//! stack of pages built the first time they're shown over the player bar. In
 //! fullscreen only the player page shows. Settings opens as a dialog over the
 //! window (see `settings_dialog`).
 
@@ -21,13 +21,16 @@ struct Ui {
     stack: gtk::Stack,
     nav: gtk::Box,
     nav_items: HashMap<String, gtk::Button>,
-    /// The header's subtitle: the page you're on.
-    subtitle: gtk::Label,
+    /// The count (or what's playing) at the end of a fixed nav item.
+    readouts: HashMap<&'static str, gtk::Label>,
     playlist_box: gtk::Box,
+    folder_box: gtk::Box,
     search: gtk::SearchEntry,
     bar: gtk::Box,
     /// The header, hidden in fullscreen.
     chrome: Vec<gtk::Widget>,
+    /// Header parts only a wide window has room for (key hints).
+    wide_only: Vec<gtk::Widget>,
     pages: HashMap<String, gtk::Widget>,
     sections: Vec<Section>,
     current: String,
@@ -39,6 +42,10 @@ struct Ui {
 thread_local! {
     static UI: RefCell<Option<Rc<RefCell<Ui>>>> = const { RefCell::new(None) };
     static NARROW: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// A narrow window hides the sidebar; the sidebar button shows it as icons.
+    static RAIL_OPEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// The top folder the Folders page is in, for its sidebar item.
+    static FOLDER: RefCell<Option<std::path::PathBuf>> = const { RefCell::new(None) };
     /// A playlist asked for before the playlists finished loading.
     static PENDING: RefCell<Option<String>> = const { RefCell::new(None) };
     /// Sections visited, for Back.
@@ -120,6 +127,7 @@ fn install_icons() {
     }
 }
 
+/// A nav item: icon, name, and a readout at the end (a count, or what's playing).
 fn nav_button(icon: &str, title: &str, tooltip: &str) -> (gtk::Button, gtk::Label) {
     let button = gtk::Button::new();
     button.add_css_class("nav-item");
@@ -127,11 +135,44 @@ fn nav_button(icon: &str, title: &str, tooltip: &str) -> (gtk::Button, gtk::Labe
     content.append(&gtk::Image::from_icon_name(icon));
     let l = widgets::label(title, "nav-label");
     l.set_hexpand(true);
+    l.set_xalign(0.0);
     l.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    // A short name stays whole; what's playing beside it gives way first.
+    l.set_width_chars(title.chars().count().min(12) as i32);
+    l.add_css_class("compact-hide");
     content.append(&l);
+    let readout = widgets::label("", "nav-readout");
+    readout.add_css_class("compact-hide");
+    readout.add_css_class("tnum");
+    readout.set_max_width_chars(14);
+    readout.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    readout.set_visible(false);
+    content.append(&readout);
     button.set_child(Some(&content));
     button.set_tooltip_text(Some(tooltip));
-    (button, l)
+    button.update_property(&[gtk::accessible::Property::Label(title)]);
+    (button, readout)
+}
+
+/// Set a readout; an empty one hides (and stays hidden on the icon rail).
+fn set_readout(readout: &gtk::Label, text: &str) {
+    readout.set_text(text);
+    let compact =
+        std::iter::successors(readout.parent(), |w| w.parent()).any(|w| w.has_css_class("settings-navigation") && w.has_css_class("compact"));
+    readout.set_visible(!text.is_empty() && !compact);
+}
+
+/// A group's heading in its section colour, and the short bar in that colour
+/// that marks where the group starts on the icon rail.
+fn group(list: &gtk::Box, heading: gtk::Box, section: &str) {
+    let bar = gtk::Separator::new(gtk::Orientation::Horizontal);
+    bar.add_css_class("nav-divider");
+    bar.add_css_class("compact-show");
+    bar.add_css_class(&format!("section-{section}"));
+    bar.set_visible(false);
+    list.append(&bar);
+    nyx_ui::sidebar::set_section(&heading, section);
+    list.append(&heading);
 }
 
 fn build(app: &gtk::Application) {
@@ -151,32 +192,39 @@ fn build(app: &gtk::Application) {
     let sections = sections::all();
 
     // ----- Sidebar -----
+    // Library in the app's accent; Folders (with + to add one), Playing and
+    // Playlists (with + for a new one) in their own colours.
     let nav = gtk::Box::new(gtk::Orientation::Vertical, 0);
     nav.add_css_class("settings-navigation");
     nav.set_hexpand(false);
     let list = gtk::Box::new(gtk::Orientation::Vertical, 0);
     let mut nav_items = HashMap::new();
+    let mut readouts = HashMap::new();
     let playlist_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    let mut last_group = "";
-    // Settings opens as a dialog from the top bar, so it has no nav item.
-    for s in sections.iter().filter(|s| s.nav && s.id != "settings") {
-        // The library needs no heading: it's what the sidebar starts with.
-        if s.group != last_group {
-            if !last_group.is_empty() {
-                list.append(&group_heading(s.group));
-            }
-            last_group = s.group;
+    let folder_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    let mut add_items = |list: &gtk::Box, group: &str| {
+        for s in sections.iter().filter(|s| s.nav && s.group == group) {
+            let (button, readout) = nav_button(s.icon, s.title, s.description);
+            let id = s.id;
+            button.connect_clicked(move |_| navigate(id));
+            list.append(&button);
+            nav_items.insert(s.id.to_string(), button);
+            readouts.insert(s.id, readout);
         }
-        let (button, label) = nav_button(s.icon, s.title, s.description);
-        label.add_css_class("compact-hide");
-        let id = s.id;
-        button.connect_clicked(move |_| navigate(id));
-        list.append(&button);
-        nav_items.insert(s.id.to_string(), button);
-        if s.id == "queue" {
-            list.append(&playlist_box);
-        }
-    }
+    };
+    group(&list, nyx_ui::sidebar::group_label("Library", true), nyx_ui::sidebar::ACCENT_SECTION);
+    add_items(&list, "Library");
+    let folders_head =
+        nyx_ui::sidebar::group_label_with_add("Folders", false, "Add a folder to the library", sections::settings::choose_folder);
+    group(&list, folders_head, "swatch-teal");
+    list.append(&folder_box);
+    group(&list, nyx_ui::sidebar::group_label("Playing", false), "swatch-green");
+    add_items(&list, "Playing");
+    let playlists_head = nyx_ui::sidebar::group_label_with_add("Playlists", false, "New playlist, or import one", || {
+        sections::playlist::new_dialog(Vec::new())
+    });
+    group(&list, playlists_head, "swatch-amber");
+    list.append(&playlist_box);
     let nav_scroll = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         // Scrolls with wheel, trackpad and keyboard; no visible scrollbar.
@@ -206,21 +254,38 @@ fn build(app: &gtk::Application) {
     });
 
     // The header: the app and the page, the sidebar toggle, search, opening a web
-    // address or files, the equalizer and Settings.
+    // address, Open (labelled: it's what most people come to do) and Settings.
     let header = chrome::app_header(&window, "nmp-video-symbolic", "Media Player");
-    let collapse = nyx_ui::widgets::bar_button("sidebar-show-symbolic", "Collapse the sidebar (Ctrl+B)");
+    header.subtitle.set_visible(false);
+    let collapse = nyx_ui::widgets::bar_button("sidebar-show-symbolic", "Show or hide the sidebar (Ctrl+B)");
     collapse.connect_clicked(|_| toggle_sidebar());
     header.start.append(&collapse);
-    header.center.append(&search);
+    let search_box = gtk::Overlay::new();
+    search_box.set_child(Some(&search));
+    let search_key = widgets::label("Ctrl F", "key-hint");
+    search_key.set_halign(gtk::Align::End);
+    search_key.set_valign(gtk::Align::Center);
+    search_key.set_margin_end(10);
+    search_key.set_can_target(false);
+    search_box.add_overlay(&search_key);
+    let sk = search_key.clone();
+    search.connect_changed(move |s| sk.set_opacity(if s.text().is_empty() { 1.0 } else { 0.0 }));
+    header.center.append(&search_box);
     let address = nyx_ui::widgets::bar_button("insert-link-symbolic", "Open a web address (Ctrl+L)");
     address.connect_clicked(|_| open_url());
     header.end.append(&address);
-    let files = nyx_ui::widgets::bar_button("document-open-symbolic", "Open videos (Ctrl+O)");
+    let files = gtk::Button::new();
+    files.add_css_class("open-button");
+    files.set_tooltip_text(Some("Open videos, folders or playlists (Ctrl+O)"));
+    files.set_valign(gtk::Align::Center);
+    let face = widgets::hbox(6);
+    face.append(&gtk::Image::from_icon_name("list-add-symbolic"));
+    face.append(&gtk::Label::new(Some("Open")));
+    let open_key = widgets::label("Ctrl O", "key-hint");
+    face.append(&open_key);
+    files.set_child(Some(&face));
     files.connect_clicked(|_| open_files());
     header.end.append(&files);
-    let eq = nyx_ui::widgets::bar_button("nmp-equalizer-symbolic", "Equalizer");
-    eq.connect_clicked(|_| open_equalizer());
-    header.end.append(&eq);
     header.end.append(&chrome::settings_button(settings_dialog::open));
     // The player bar runs across the window's foot, under the sidebar and the pages.
     let frame = Rc::new(nyx_ui::frame::AppFrame::new(&header.root));
@@ -228,9 +293,12 @@ fn build(app: &gtk::Application) {
     frame.set_page(&stack);
     frame.set_foot(&bar);
     let overlay = frame.install(&window);
-    // The picture reaches the sheet's edges; every other page keeps the room inside it.
+    // The picture, the table and a folder's path reach the sheet's edges; every
+    // other page keeps the room inside it.
     let f = frame.clone();
-    stack.connect_visible_child_name_notify(move |s| f.set_flush(s.visible_child_name().as_deref() == Some("now-playing")));
+    stack.connect_visible_child_name_notify(move |s| {
+        f.set_flush(matches!(s.visible_child_name().as_deref(), Some("now-playing" | "videos" | "folders")))
+    });
 
     install_keys(&window, &search);
     accept_file_drops(&overlay);
@@ -251,7 +319,7 @@ fn build(app: &gtk::Application) {
             }
             nav.add_css_class("sized");
             set_narrow(narrow);
-            apply_compact(&nav, narrow || prefs::get().sidebar_collapsed);
+            apply_sidebar();
         }
     };
     let aw = apply_width.clone();
@@ -286,11 +354,13 @@ fn build(app: &gtk::Application) {
         stack,
         nav,
         nav_items,
-        subtitle: header.subtitle.clone(),
+        readouts,
         playlist_box: playlist_box.clone(),
+        folder_box: folder_box.clone(),
         search,
         bar,
         chrome: vec![header.root.clone().upcast()],
+        wide_only: vec![search_key.upcast(), open_key.upcast()],
         pages: HashMap::new(),
         sections,
         current: String::new(),
@@ -299,18 +369,94 @@ fn build(app: &gtk::Application) {
     };
     UI.with(|u| *u.borrow_mut() = Some(Rc::new(RefCell::new(ui))));
 
-    store::subscribe(&playlist_box, |c| {
-        if c == store::Change::Playlists {
-            refresh_playlists();
+    store::subscribe(&playlist_box, |c| match c {
+        store::Change::Playlists => refresh_playlists(),
+        store::Change::Library => {
+            refresh_folders();
+            refresh_counts();
+        }
+        _ => {}
+    });
+    player::subscribe(&folder_box, |e| {
+        if matches!(e, player::Event::Track | player::Event::Queue) {
+            refresh_counts();
         }
     });
     refresh_playlists();
+    refresh_folders();
+    refresh_counts();
+}
+
+/// The counts beside Movies, TV shows, All videos and Queue, and what's playing
+/// beside Now playing.
+fn refresh_counts() {
+    let Some(ui) = ui() else { return };
+    let readouts = ui.borrow().readouts.clone();
+    let loaded = store::loaded();
+    let count = |n: usize| if loaded && n > 0 { fmt::thousands(n) } else { String::new() };
+    for (id, text) in [
+        ("movies", count(store::movies().len())),
+        ("tv", count(store::shows().len())),
+        ("videos", count(store::videos().len())),
+        ("queue", count(player::queue_items().0.len())),
+        (
+            "now-playing",
+            player::current()
+                .map(|v| if v.kind == crate::library::Kind::Episode { v.show.clone() } else { v.title.clone() })
+                .unwrap_or_default(),
+        ),
+    ] {
+        if let Some(r) = readouts.get(id) {
+            set_readout(r, &text);
+        }
+    }
+}
+
+/// The top folders under Folders, each with how many videos it holds.
+fn refresh_folders() {
+    let Some(ui) = ui() else { return };
+    let bx = ui.borrow().folder_box.clone();
+    while let Some(c) = bx.first_child() {
+        bx.remove(&c);
+    }
+    ui.borrow_mut().nav_items.retain(|k, _| !k.starts_with("folder:"));
+    for node in sections::folders::top_folders() {
+        let (button, readout) = nav_button("folder-symbolic", &node.name, &crate::paths::pretty(&node.path));
+        let path = node.path.clone();
+        button.connect_clicked(move |_| sections::folders::show_dir(&path));
+        bx.append(&button);
+        ui.borrow_mut().nav_items.insert(format!("folder:{}", node.path.display()), button);
+        readout.set_text(&fmt::thousands(node.count));
+    }
+    let nav = ui.borrow().nav.clone();
+    apply_compact(&nav, nav.has_css_class("compact"));
+    mark_folder_items();
+}
+
+/// The Folders page is in `top` (a folder the sidebar lists, or the library folder).
+pub fn mark_folder(top: Option<&std::path::Path>) {
+    FOLDER.with(|f| *f.borrow_mut() = top.map(|p| p.to_path_buf()));
+    mark_folder_items();
+}
+
+fn mark_folder_items() {
+    let Some(ui) = ui() else { return };
+    let u = ui.borrow();
+    let on_folders = u.current == "folders";
+    let key = FOLDER.with(|f| f.borrow().as_ref().map(|p| format!("folder:{}", p.display())));
+    for (k, b) in u.nav_items.iter().filter(|(k, _)| k.starts_with("folder:")) {
+        if on_folders && Some(k) == key.as_ref() {
+            b.add_css_class("active");
+        } else {
+            b.remove_css_class("active");
+        }
+    }
 }
 
 /// The library search, in the middle of the header.
 fn search_entry() -> gtk::SearchEntry {
     let search = gtk::SearchEntry::new();
-    search.set_placeholder_text(Some("Search titles, shows, episodes  (Ctrl+F)"));
+    search.set_placeholder_text(Some("Search movies, shows and episodes"));
     search.update_property(&[gtk::accessible::Property::Label("Search the library")]);
     search.add_css_class("bar-search");
     search.set_width_chars(36);
@@ -320,28 +466,8 @@ fn search_entry() -> gtk::SearchEntry {
     search
 }
 
-/// A sidebar group's heading; Playlists has its + for a new one.
-fn group_heading(group: &str) -> gtk::Widget {
-    let heading = widgets::label(&group.to_uppercase(), "nav-group");
-    heading.add_css_class("compact-hide");
-    if group != "Playlists" {
-        return heading.upcast();
-    }
-    let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    row.add_css_class("compact-hide");
-    heading.set_hexpand(true);
-    heading.set_xalign(0.0);
-    row.append(&heading);
-    let add = widgets::icon_button("list-add-symbolic", "New playlist, or import one");
-    add.add_css_class("flat");
-    add.add_css_class("nav-group-add");
-    add.set_valign(gtk::Align::Center);
-    add.connect_clicked(|_| sections::playlist::new_dialog(Vec::new()));
-    row.append(&add);
-    row.upcast()
-}
-
-/// The sidebar's foot: how big the library is, and a scan while one runs.
+/// The sidebar's foot, only while the library is being scanned or looked up.
+/// (How big the library is shows on All videos.)
 fn library_readout() -> gtk::Label {
     let readout = widgets::label("", "status-readout");
     readout.add_css_class("nav-foot");
@@ -351,24 +477,18 @@ fn library_readout() -> gtk::Label {
     let refresh = {
         let readout = readout.clone();
         move || {
-            let mut parts = Vec::new();
-            match (store::scanning(), store::busy()) {
-                (Some((done, total)), _) if total > 0 => parts.push(format!("Scanning {}%", done * 100 / total)),
-                (Some(_), _) => parts.push("Scanning".to_string()),
-                (None, Some(b)) => parts.push(b),
-                (None, None) => {}
-            }
-            if store::loaded() {
-                let videos = store::videos();
-                let secs: f64 = videos.iter().map(|v| v.duration).sum();
-                parts.push(fmt::count(videos.len(), "video", "videos"));
-                if secs > 0.0 {
-                    parts.push(fmt::total(secs));
-                }
-            }
-            readout.set_text(&parts.join(" · "));
+            let text = match (store::scanning(), store::busy()) {
+                (Some((done, total)), _) if total > 0 => format!("Scanning {}%", done * 100 / total),
+                (Some(_), _) => "Scanning".to_string(),
+                (None, Some(b)) => b,
+                (None, None) => String::new(),
+            };
+            readout.set_text(&text);
+            let compact = std::iter::successors(readout.parent(), |w| w.parent()).any(|w| w.has_css_class("compact"));
+            readout.set_visible(!text.is_empty() && !compact);
         }
     };
+    readout.add_css_class("hide-empty");
     refresh();
     store::subscribe(&readout, move |_| refresh());
     readout
@@ -379,7 +499,8 @@ pub fn overlay() -> Option<gtk::Overlay> {
     ui().map(|u| u.borrow().overlay.clone())
 }
 
-/// The sidebar shows only icons: hide the labels, centre the icons and the toggle.
+/// The sidebar shows only icons: hide the labels and counts, show the groups'
+/// coloured bars, centre the icons.
 fn apply_compact(nav: &gtk::Box, compact: bool) {
     if compact {
         nav.add_css_class("compact");
@@ -389,17 +510,38 @@ fn apply_compact(nav: &gtk::Box, compact: bool) {
     set_compact_hidden(nav, compact);
 }
 
-pub fn toggle_sidebar() {
-    prefs::update(|p| p.sidebar_collapsed = !p.sidebar_collapsed);
+/// Where the sidebar is and how: hidden in fullscreen and (until its button is
+/// pressed) in a narrow window, icons only when narrow or collapsed.
+fn apply_sidebar() {
     let Some(ui) = ui() else { return };
-    let nav = ui.borrow().nav.clone();
-    apply_compact(&nav, NARROW.with(|n| n.get()) || prefs::get().sidebar_collapsed);
+    let (nav, window) = {
+        let u = ui.borrow();
+        (u.nav.clone(), u.window.clone())
+    };
+    let narrow = NARROW.with(|n| n.get());
+    nav.set_visible(!window.has_css_class("fullscreen") && (!narrow || RAIL_OPEN.with(|r| r.get())));
+    apply_compact(&nav, narrow || prefs::get().sidebar_collapsed);
+}
+
+pub fn toggle_sidebar() {
+    if NARROW.with(|n| n.get()) {
+        RAIL_OPEN.with(|r| r.set(!r.get()));
+    } else {
+        prefs::update(|p| p.sidebar_collapsed = !p.sidebar_collapsed);
+    }
+    apply_sidebar();
 }
 
 fn set_compact_hidden(root: &gtk::Box, compact: bool) {
     fn walk(w: &gtk::Widget, compact: bool) {
         if w.has_css_class("compact-hide") {
-            w.set_visible(!compact);
+            // A count stays hidden while it has nothing to show.
+            let empty = (w.has_css_class("nav-readout") || w.has_css_class("hide-empty"))
+                && w.downcast_ref::<gtk::Label>().is_some_and(|l| l.text().is_empty());
+            w.set_visible(!compact && !empty);
+        }
+        if w.has_css_class("compact-show") {
+            w.set_visible(compact);
         }
         // Icon-only: centre the icon in its pill, and the toggle in the column.
         if w.has_css_class("nav-item")
@@ -457,6 +599,10 @@ pub const SHORTCUTS: &[(&str, Keys)] = &[
         ],
     ),
     (
+        "In a list of videos",
+        &[(&["Enter"], "Play"), (&["Q"], "Add to the queue"), (&["W"], "Mark as watched or unwatched")],
+    ),
+    (
         "Everywhere",
         &[
             (&["Ctrl", "O"], "Open files"),
@@ -464,7 +610,7 @@ pub const SHORTCUTS: &[(&str, Keys)] = &[
             (&["Ctrl", "S"], "Save the frame as a picture"),
             (&["Ctrl", "F"], "Search the library"),
             (&["Alt", "←"], "Back (or the mouse's back button)"),
-            (&["Ctrl", "B"], "Collapse or expand the sidebar"),
+            (&["Ctrl", "B"], "Collapse or expand the sidebar (show or hide it in a narrow window)"),
             (&["Ctrl", ","], "Settings"),
             (&["F1"], "Show these shortcuts (or ?)"),
             (&["Ctrl", "Q"], "Close"),
@@ -844,17 +990,19 @@ fn update_bar() {
 /// Fullscreen shows only the player: no sidebar, no player bar.
 fn apply_fullscreen(on: bool) {
     let Some(ui) = ui() else { return };
-    let u = ui.borrow();
-    u.nav.set_visible(!on);
-    for w in &u.chrome {
-        w.set_visible(!on);
+    {
+        let u = ui.borrow();
+        for w in &u.chrome {
+            w.set_visible(!on);
+        }
+        u.bar.set_visible(!on && u.current != "now-playing" && player::current().is_some());
+        if on {
+            u.window.add_css_class("fullscreen");
+        } else {
+            u.window.remove_css_class("fullscreen");
+        }
     }
-    u.bar.set_visible(!on && u.current != "now-playing" && player::current().is_some());
-    if on {
-        u.window.add_css_class("fullscreen");
-    } else {
-        u.window.remove_css_class("fullscreen");
-    }
+    apply_sidebar();
 }
 
 fn on_search(text: &str) {
@@ -876,13 +1024,22 @@ fn on_search(text: &str) {
 }
 
 fn set_narrow(narrow: bool) {
-    NARROW.with(|n| n.set(narrow));
+    let was = NARROW.with(|n| n.replace(narrow));
+    if was != narrow {
+        RAIL_OPEN.with(|r| r.set(false));
+    }
     playerbar::set_narrow(narrow);
     crate::videotable::set_narrow(narrow);
     let Some(ui) = ui() else { return };
-    for page in ui.borrow().pages.values() {
+    let u = ui.borrow();
+    for page in u.pages.values() {
         mark_page(page, narrow);
     }
+    for w in &u.wide_only {
+        w.set_visible(!narrow);
+    }
+    u.search.set_placeholder_text(Some(if narrow { "Search" } else { "Search movies, shows and episodes" }));
+    u.search.set_width_chars(if narrow { 22 } else { 36 });
 }
 
 pub fn narrow() -> bool {
@@ -947,10 +1104,10 @@ pub fn navigate(id: &str) {
         when_loaded(move || sections::movies::open(&path));
         return;
     }
-    // Folders is All videos' Folders view now.
-    if id == "folders" {
-        sections::videos::want_folders();
-        return navigate("videos");
+    if let Some(path) = id.strip_prefix("folder:") {
+        let path = std::path::PathBuf::from(path);
+        when_loaded(move || sections::folders::show_dir(&path));
+        return;
     }
     let Some(ui) = ui() else { return };
     // Settings and the equalizer are cards over the window, not pages.
@@ -993,15 +1150,15 @@ pub fn navigate(id: &str) {
     u.stack.set_visible_child_name(&id);
     u.current = id.clone();
     let title = page_title(&u.sections, &id);
+    // The window's title names the page; the header doesn't repeat what the sidebar shows.
     chrome::set_title(&u.window, "Media Player", &title);
-    u.subtitle.set_text(&title);
-    u.subtitle.set_visible(!title.is_empty());
     // The player has its own controls; the bar is for everywhere else.
     let full = u.window.is_fullscreen();
     u.bar.set_visible(id != "now-playing" && !full && player::current().is_some());
     let search = u.search.clone();
     let leaving_player = full && id != "now-playing";
     drop(u);
+    mark_folder_items();
     if leaving_player {
         set_fullscreen(false);
     }
@@ -1066,8 +1223,10 @@ fn refresh_playlists() {
     ui.borrow_mut().nav_items.retain(|k, _| !k.starts_with("playlist:"));
     let current = ui.borrow().current.clone();
     for p in store::playlists() {
-        let (button, label) = nav_button("nmp-playlist-symbolic", &p.name, &p.name);
-        label.add_css_class("compact-hide");
+        let (button, readout) = nav_button("nmp-playlist-symbolic", &p.name, &p.name);
+        if p.count > 0 {
+            readout.set_text(&fmt::thousands(p.count));
+        }
         let id = format!("playlist:{}", p.id);
         if id == current {
             button.add_css_class("active");
@@ -1079,7 +1238,7 @@ fn refresh_playlists() {
         ui.borrow_mut().nav_items.insert(id, button);
     }
     let nav = ui.borrow().nav.clone();
-    set_compact_hidden(&nav, nav.has_css_class("compact"));
+    apply_compact(&nav, nav.has_css_class("compact"));
     if let Some(id) = PENDING.with(|p| p.borrow_mut().take()) {
         navigate(&id);
     }
