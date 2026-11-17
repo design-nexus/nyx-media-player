@@ -1,4 +1,4 @@
-//! Media Player — a video player for Omarchy.
+//! Media Player — a video player for NyxOS and Omarchy.
 
 mod cmd;
 mod control;
