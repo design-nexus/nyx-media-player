@@ -78,6 +78,10 @@ pub fn description(app_id: &str) -> Value {
     for t in tools.as_array_mut().into_iter().flatten() {
         let risk = if matches!(t["name"].as_str(), Some("video.search" | "video.status")) { "read_only" } else { "writes" };
         t["x-nyx"] = json!({"risk": risk});
+        // A single required argument can be given bare: `nyx APP VERB WORDS`.
+        if let Some([one]) = t["inputSchema"]["required"].as_array().map(Vec::as_slice) {
+            t["x-nyx"]["positional"] = json!([one]);
+        }
     }
     tools[0]["x-nyx"]["positional"] = json!(["query"]);
     tools[3]["x-nyx"]["positional"] = json!(["action"]);
