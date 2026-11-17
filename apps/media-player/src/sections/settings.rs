@@ -2,8 +2,8 @@ use crate::library::{db, store};
 use crate::player::{self, scrub};
 use crate::widgets::{self, Page};
 use crate::{cmd, fmt, paths, prefs, window};
-use gtk::prelude::*;
 use gtk::gio;
+use gtk::prelude::*;
 use std::path::PathBuf;
 
 /// Pick a folder and add it to the library (the empty states use this too).
@@ -225,9 +225,18 @@ pub fn build(page: &Page) {
         |on| prefs::update(|p| p.autoplay_next = on),
     );
     g.add(&r);
-    let (row, _) = widgets::choice_row("Show Up next", "Show the next video before the current one ends. Off hides the card without changing autoplay.",
-        widgets::opts(&[("0", "Off"), ("10", "10 seconds before the end"), ("20", "20 seconds before the end"), ("30", "30 seconds before the end")]),
-        &p.up_next_seconds.to_string(), |id| prefs::update(|p| p.up_next_seconds = id.parse().unwrap_or(20)));
+    let (row, _) = widgets::choice_row(
+        "Show Up next",
+        "Show the next video before the current one ends. Off hides the card without changing autoplay.",
+        widgets::opts(&[
+            ("0", "Off"),
+            ("10", "10 seconds before the end"),
+            ("20", "20 seconds before the end"),
+            ("30", "30 seconds before the end"),
+        ]),
+        &p.up_next_seconds.to_string(),
+        |id| prefs::update(|p| p.up_next_seconds = id.parse().unwrap_or(20)),
+    );
     g.add(&row);
     let current = format!("{}", p.skip_short as i64);
     g.add(&widgets::segmented_row(

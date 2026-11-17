@@ -136,7 +136,9 @@ fn compare(col: Col, a: &Video, b: &Video) -> Ordering {
     match col {
         Col::Title => title_order(a, b),
         Col::Kind => kind_name(a.kind).cmp(kind_name(b.kind)).then_with(|| title_order(a, b)),
-        Col::KindYear => kind_name(a.kind).cmp(kind_name(b.kind)).then_with(|| a.year.cmp(&b.year)).then_with(|| title_order(a, b)),
+        Col::KindYear => {
+            kind_name(a.kind).cmp(kind_name(b.kind)).then_with(|| a.year.cmp(&b.year)).then_with(|| title_order(a, b))
+        }
         Col::Year => a.year.cmp(&b.year).then_with(|| title_order(a, b)),
         Col::Time => a.duration.total_cmp(&b.duration),
         Col::Size => a.size.cmp(&b.size),
@@ -568,7 +570,10 @@ fn apply_narrow(view: &gtk::ColumnView, narrow: bool) {
     for i in 0..cols.n_items() {
         if let Some(c) = cols.item(i).and_downcast::<gtk::ColumnViewColumn>() {
             let title = c.title().map(|t| t.to_string()).unwrap_or_default();
-            if [Col::Kind, Col::KindYear, Col::Year, Col::Size, Col::Added].iter().any(|col| col.hidden_when_narrow() && col.title() == title) {
+            if [Col::Kind, Col::KindYear, Col::Year, Col::Size, Col::Added]
+                .iter()
+                .any(|col| col.hidden_when_narrow() && col.title() == title)
+            {
                 c.set_visible(!narrow);
             }
         }

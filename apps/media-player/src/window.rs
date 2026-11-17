@@ -10,8 +10,8 @@ use crate::sections::{self, Section};
 use crate::widgets;
 use crate::{fmt, panel_dialog, player, playerbar, prefs, settings_dialog, theme};
 use gtk::prelude::*;
-use nyx_ui::chrome;
 use gtk::{gdk, glib};
+use nyx_ui::chrome;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -157,8 +157,8 @@ fn nav_button(icon: &str, title: &str, tooltip: &str) -> (gtk::Button, gtk::Labe
 /// Set a readout; an empty one hides (and stays hidden on the icon rail).
 fn set_readout(readout: &gtk::Label, text: &str) {
     readout.set_text(text);
-    let compact =
-        std::iter::successors(readout.parent(), |w| w.parent()).any(|w| w.has_css_class("settings-navigation") && w.has_css_class("compact"));
+    let compact = std::iter::successors(readout.parent(), |w| w.parent())
+        .any(|w| w.has_css_class("settings-navigation") && w.has_css_class("compact"));
     readout.set_visible(!text.is_empty() && !compact);
 }
 
@@ -176,12 +176,8 @@ fn group(list: &gtk::Box, heading: gtk::Box, section: &str) {
 }
 
 fn build(app: &gtk::Application) {
-    let window = gtk::ApplicationWindow::builder()
-        .application(app)
-        .title("Media Player")
-        .default_width(1120)
-        .default_height(800)
-        .build();
+    let window =
+        gtk::ApplicationWindow::builder().application(app).title("Media Player").default_width(1120).default_height(800).build();
     window.add_css_class("media-window");
     window.add_css_class("playback-window");
     // No client-side titlebar: Hyprland manages the window.
@@ -598,10 +594,7 @@ pub const SHORTCUTS: &[(&str, Keys)] = &[
             (&["X"], "Subtitles later"),
         ],
     ),
-    (
-        "In a list of videos",
-        &[(&["Enter"], "Play"), (&["Q"], "Add to the queue"), (&["W"], "Mark as watched or unwatched")],
-    ),
+    ("In a list of videos", &[(&["Enter"], "Play"), (&["Q"], "Add to the queue"), (&["W"], "Mark as watched or unwatched")]),
     (
         "Everywhere",
         &[

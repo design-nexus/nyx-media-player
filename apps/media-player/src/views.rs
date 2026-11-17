@@ -15,7 +15,7 @@ fn boxed<T: 'static>(obj: &glib::Object) -> Option<std::cell::Ref<'_, T>> {
 }
 
 /// A thin bar along the bottom of a picture showing how far in a video is.
-pub use nyx_ui::media::{progress_strip, set_progress, badge, set_badge, hover_play};
+pub use nyx_ui::media::{badge, hover_play, progress_strip, set_badge, set_progress};
 
 /// Something a poster grid holds.
 #[derive(Clone)]

@@ -101,7 +101,8 @@ fn refresh_chips() {
     let narrow = NARROW.with(|n| n.get());
     CHIPS.with(|c| {
         for chip in c.borrow().iter() {
-            let has = chip.child().and_then(|f| f.last_child()).and_downcast::<gtk::Label>().is_some_and(|l| !l.text().is_empty());
+            let has =
+                chip.child().and_then(|f| f.last_child()).and_downcast::<gtk::Label>().is_some_and(|l| !l.text().is_empty());
             chip.set_visible(!narrow && has);
         }
     });

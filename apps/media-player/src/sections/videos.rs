@@ -18,8 +18,14 @@ thread_local! {
     static TABLE: RefCell<Option<(VideoTable, gtk::DropDown)>> = const { RefCell::new(None) };
 }
 
-const SORTS: &[(&str, &str)] =
-    &[("added", "Date added"), ("title", "Title"), ("length", "Length"), ("size", "Size"), ("kind", "Kind"), ("watched", "Watched")];
+const SORTS: &[(&str, &str)] = &[
+    ("added", "Date added"),
+    ("title", "Title"),
+    ("length", "Length"),
+    ("size", "Size"),
+    ("kind", "Kind"),
+    ("watched", "Watched"),
+];
 
 fn apply_sort(table: &VideoTable, id: &str) {
     let (col, order) = match id {
@@ -139,7 +145,8 @@ pub fn build(page: &Page) {
     refresh();
     store::subscribe(&content, move |c| {
         // Positions move every few seconds while playing; watched marks are what matter here.
-        let marks = c == store::Change::Watch && UNWATCHED.with(|u| u.get()) && crate::player::state() != crate::player::State::Playing;
+        let marks =
+            c == store::Change::Watch && UNWATCHED.with(|u| u.get()) && crate::player::state() != crate::player::State::Playing;
         if c == store::Change::Library || marks {
             refresh();
         }

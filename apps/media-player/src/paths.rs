@@ -46,7 +46,6 @@ pub fn pictures_dir() -> PathBuf {
     user_dir("XDG_PICTURES_DIR", "Pictures")
 }
 
-
 /// The play queue and position, so playback can resume.
 pub fn state_file() -> PathBuf {
     data_dir().join("state.json")

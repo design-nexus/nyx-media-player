@@ -313,10 +313,9 @@ impl Browser {
         let playing = player::current().map(|v| v.path.clone());
         let focus = self.focus.borrow_mut().take();
         // Picked out: the file asked for, else the one playing, else the last one started.
-        let picked = focus
-            .clone()
-            .or_else(|| playing.clone().filter(|p| here.iter().any(|v| v.path == *p)))
-            .or_else(|| here.iter().filter(|v| v.in_progress()).max_by_key(|v| v.watch.get().last_played).map(|v| v.path.clone()));
+        let picked = focus.clone().or_else(|| playing.clone().filter(|p| here.iter().any(|v| v.path == *p))).or_else(|| {
+            here.iter().filter(|v| v.in_progress()).max_by_key(|v| v.watch.get().last_played).map(|v| v.path.clone())
+        });
         let paths_here: Vec<PathBuf> = here.iter().map(|v| v.path.clone()).collect();
         *self.open.borrow_mut() = paths_here.clone();
         for b in &self.actions {
@@ -507,7 +506,13 @@ mod tests {
 
     #[test]
     fn describes_files() {
-        let ep = Video { kind: Kind::Episode, episode: Some(5), title: "The Long Dark".into(), duration: 3300.0, ..Default::default() };
+        let ep = Video {
+            kind: Kind::Episode,
+            episode: Some(5),
+            title: "The Long Dark".into(),
+            duration: 3300.0,
+            ..Default::default()
+        };
         assert_eq!(file_detail(&ep), "5 · The Long Dark · 55 min");
         let movie = Video { kind: Kind::Movie, year: Some(2021), duration: 7440.0, ..Default::default() };
         assert_eq!(file_detail(&movie), "Movie · 2021 · 2 h 4 min");

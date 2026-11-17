@@ -89,4 +89,3 @@ impl Group {
 // ---------- Config files and bar buttons ----------
 
 // ---------- Rows ----------
-

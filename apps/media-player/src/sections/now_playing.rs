@@ -357,9 +357,7 @@ impl UpNext {
         let (d, pos) = (player::duration(), player::position());
         let left = (d - pos).max(0.0);
         let lead = crate::prefs::get().up_next_seconds.min(30);
-        let due = lead > 0 && d > 60.0
-            && player::state() == State::Playing
-            && left <= lead as f64;
+        let due = lead > 0 && d > 60.0 && player::state() == State::Playing && left <= lead as f64;
         let next = if due { player::up_next() } else { None };
         let Some(next) = next else {
             self.root.set_visible(false);
@@ -541,8 +539,22 @@ pub fn build(page: &Page) {
     let seek = SeekBar::new();
     let p = prefs::get();
     let nyx_playback::controls::OsdControls {
-        root: controls, prev, back, play, fwd, next, mute, volume, speed_label,
-        chapters, shape, speed, audio, subs, full, close,
+        root: controls,
+        prev,
+        back,
+        play,
+        fwd,
+        next,
+        mute,
+        volume,
+        speed_label,
+        chapters,
+        shape,
+        speed,
+        audio,
+        subs,
+        full,
+        close,
     } = nyx_playback::controls::OsdControls::new(&seek.root, p.volume, player::max_volume(), p.muted);
     nyx_playback::controls::fill_menu(&chapters, chapter_menu);
     let pic = picture.clone();
@@ -609,9 +621,12 @@ pub fn build(page: &Page) {
     overlay.connect_unmap(|_| player::set_sub_pos(100.0));
 
     let wake = nyx_playback::controls::install_autohide(
-        &overlay, &top, &controls,
+        &overlay,
+        &top,
+        &controls,
         vec![chapters.clone(), shape.clone(), speed.clone(), audio.clone(), subs.clone()],
-        Rc::new(|| player::state() == State::Playing), place_subs.clone(),
+        Rc::new(|| player::state() == State::Playing),
+        place_subs.clone(),
     );
 
     // Click to pause, at once; a double-click undoes that and goes fullscreen.

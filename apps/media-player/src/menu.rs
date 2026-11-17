@@ -182,13 +182,16 @@ pub fn show_menu(anchor: &gtk::Widget, x: f64, y: f64, show: Rc<Show>) {
     let all_watched = show.unwatched() == 0;
     let e = eps.clone();
     m.push(
-        menu::item(if all_watched { "Mark as unwatched" } else { "Mark as watched" }, move || store::set_watched(&e, !all_watched))
-            .icon("object-select-symbolic"),
+        menu::item(if all_watched { "Mark as unwatched" } else { "Mark as watched" }, move || {
+            store::set_watched(&e, !all_watched)
+        })
+        .icon("object-select-symbolic"),
     );
     if tmdb::Settings::from_prefs(&prefs::get()).is_some() {
         let s = show.clone();
         m.push(
-            menu::item("Fix match…", move || fix_match(&tmdb::show_target(&s.key), "tv", &s.name, s.year)).icon("system-search-symbolic"),
+            menu::item("Fix match…", move || fix_match(&tmdb::show_target(&s.key), "tv", &s.name, s.year))
+                .icon("system-search-symbolic"),
         );
     }
     if !show.folder.is_empty() {

@@ -33,12 +33,19 @@ fn lines(v: &Video) -> (String, String) {
         Kind::Episode => {
             let code = short_code(v);
             let name = v.episode_name();
-            let second = if name.is_empty() || name == v.code() { code } else if code.is_empty() { name } else { format!("{code} · {name}") };
+            let second = if name.is_empty() || name == v.code() {
+                code
+            } else if code.is_empty() {
+                name
+            } else {
+                format!("{code} · {name}")
+            };
             (v.show.clone(), second)
         }
         Kind::Movie => (v.title.clone(), v.year.map(|y| format!("Movie · {y}")).unwrap_or_else(|| "Movie".into())),
         Kind::Other => {
-            let folder = v.path.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let folder =
+                v.path.parent().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             (v.title.clone(), if folder.is_empty() { "Home video".into() } else { folder })
         }
     }

@@ -13,10 +13,10 @@ mod paths;
 mod player;
 mod playerbar;
 mod prefs;
-mod sections;
 mod secrets;
-mod settings_dialog;
+mod sections;
 mod seekbar;
+mod settings_dialog;
 mod theme;
 mod videotable;
 mod views;
@@ -48,7 +48,7 @@ thread_local! {
 
 /// One-time setup in the primary instance: playback, library, MPRIS.
 /// Video drawing joins once the window exists (see `player::attach`).
-fn start(app: &gtk::Application) {
+pub(crate) fn start(app: &gtk::Application) {
     if STARTED.with(|s| s.replace(true)) {
         return;
     }
@@ -91,7 +91,13 @@ fn expand(files: &[PathBuf]) -> Vec<PathBuf> {
 fn main() -> glib::ExitCode {
     nyx_core::app::init(nyx_core::app::App { slug: "nyx-media-player", name: "Media Player" });
     nyx_core::migrate::from(&["nexus-media-player"]);
-    let args: Vec<String> = std::env::args().collect();
+    let id = std::env::var("NYX_MEDIA_PLAYER_APP_ID").unwrap_or_else(|_| APP_ID.to_string());
+    nyx_core::control::describe_if_asked(&control::description(&id));
+    let mut args: Vec<String> = std::env::args().collect();
+    // Started by D-Bus for an action (no window): GLib leaves this flag to apps that
+    // handle their own command line.
+    let service = args.iter().any(|a| a == "--gapplication-service");
+    args.retain(|a| a != "--gapplication-service");
     if args.iter().any(|a| a == "--help" || a == "-h") {
         print!("{USAGE}");
         return glib::ExitCode::SUCCESS;
@@ -104,10 +110,15 @@ fn main() -> glib::ExitCode {
         unsafe { std::env::set_var("GSK_RENDERER", "gl") };
     }
 
-    let id = std::env::var("NYX_MEDIA_PLAYER_APP_ID").unwrap_or_else(|_| APP_ID.to_string());
-    let app = gtk::Application::builder().application_id(id.as_str()).flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE).build();
-    // Nyx Assistant finds and plays videos through this (primary instance only).
-    app.connect_startup(|app| nyx_core::control::serve_async(app, control::tools(), control::handle));
+    let mut flags = gio::ApplicationFlags::HANDLES_COMMAND_LINE;
+    if service {
+        flags |= gio::ApplicationFlags::IS_SERVICE;
+    }
+    let app = gtk::Application::builder().application_id(id.as_str()).flags(flags).build();
+    // The nyx command, Glimpse and Nyx Assistant find and play videos through this
+    // (primary instance only).
+    let described = control::description(&id);
+    app.connect_startup(move |app| nyx_core::control::serve_async(app, described.clone(), control::handle));
     app.connect_command_line(|app, cl| {
         let argv: Vec<String> = cl.arguments().iter().map(|a| a.to_string_lossy().to_string()).collect();
         let has = |flag: &str| argv.iter().any(|a| a == flag);
@@ -182,5 +193,5 @@ fn main() -> glib::ExitCode {
         prefs::flush();
         player::shutdown();
     });
-    app.run()
+    app.run_with_args(&args)
 }

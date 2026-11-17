@@ -61,7 +61,15 @@ pub fn all() -> Vec<Section> {
         // The sidebar lists the top folders themselves; each opens this page.
         Section {
             nav: false,
-            ..s("folders", "Folders", "folder-symbolic", "Folders", "Your videos as they're laid out on disk.", folders::build, true)
+            ..s(
+                "folders",
+                "Folders",
+                "folder-symbolic",
+                "Folders",
+                "Your videos as they're laid out on disk.",
+                folders::build,
+                true,
+            )
         },
         Section {
             bare: true,
