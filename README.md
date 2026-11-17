@@ -1,8 +1,8 @@
 # Media Player
 
-A video player for [Omarchy](https://omarchy.org). It keeps your movies and TV shows in
+A video player for NyxOS and [Omarchy](https://omarchy.org). It keeps your movies and TV shows in
 a library, remembers where you stopped, and plays them with mpv. It takes its colors
-from your Omarchy theme and fits a half-screen tile.
+from the desktop theme and fits a half-screen tile.
 
 ## What it does
 
@@ -62,6 +62,8 @@ from your Omarchy theme and fits a half-screen tile.
   it and show what's playing.
 
 ## Install
+
+On NyxOS, choose Media Player in Welcome when you set up, or install it later from the Store or with `nyx install nyx-media-player`. On Omarchy:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/design-nexus/nyx-media-player/main/install.sh | bash -s -- media-player
